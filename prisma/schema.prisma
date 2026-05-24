@@ -1,0 +1,102 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider = "postgresql"
+  extensions = [pg_trgm]
+}
+
+model User { 
+  id        Int      @id @default(autoincrement()) 
+  email     String   @unique @db.VarChar(255)
+  fullname  String   @db.VarChar(255)
+  username  String   @unique @db.VarChar(255)
+  password  String   @db.VarChar(255)
+  bio       String?   @db.Text
+  image     String?   @db.VarChar(255)
+  imageId   String?   @db.VarChar(255)
+  followingCount Int @db.Integer @default(0)
+  followersCount Int @db.Integer @default(0)
+  postsCount Int @db.Integer @default(0)
+  createdAt DateTime @default(now()) @db.Timestamp(6)
+  updatedAt DateTime @updatedAt @db.Timestamp(6)
+  // relasi ke model lain
+  post Post[]
+  comments Comments[]
+  bookmarks Bookmarks[]
+  likes Likes[]
+  followers Follows[] @relation("Follower")
+  followings Follows[] @relation("Following")
+
+  @@index([username(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@index([fullname(ops: raw("gin_trgm_ops"))], type: Gin)
+}
+
+model Post {
+  id        Int      @id @default(autoincrement()) 
+
+  // Foreign key relationship with user
+  userId    Int
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  image     String?   @db.VarChar(255)
+  imageId   String?   @db.VarChar(255)
+  caption   String   @db.VarChar(255)
+  commentsCount Int @db.Integer @default(0)
+  likesCount Int @db.Integer @default(0)
+  createdAt DateTime @default(now()) @db.Timestamp(6)
+  updatedAt DateTime @updatedAt @db.Timestamp(6)
+  // relasi ke model lain
+  comments Comments[]
+  bookmarks Bookmarks[]
+  likes Likes[]
+} 
+
+model Comments {
+  id        Int      @id @default(autoincrement()) 
+  userId    Int
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  postId Int
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  content String @db.Text
+
+  createdAt DateTime @default(now()) @db.Timestamp(6)
+  updatedAt DateTime @updatedAt @db.Timestamp(6)
+}
+
+model Bookmarks {
+  userId    Int
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  postId Int
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now()) @db.Timestamp(6)
+
+  @@id([userId, postId])
+}
+
+model Likes {
+  userId    Int
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  postId Int
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now()) @db.Timestamp(6)
+
+  @@id([userId, postId])
+}
+
+model Follows {
+  followerId Int
+  followers User @relation("Follower",fields: [followerId], references: [id], onDelete: Cascade)
+  followingId Int
+  followings User @relation("Following",fields: [followingId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now()) @db.Timestamp(6)
+
+  @@id([followerId, followingId])
+}
