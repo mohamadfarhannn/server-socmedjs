@@ -204,6 +204,51 @@ export const UnfollowUserAccount = async (req, res) => {
   }
 }
 
+export const GetUserSuggestions = async (req, res) => {
+  try {
+    const currentUserId = req.user.id
+
+    const followedUser = await prisma.follows.findMany({
+      where:{
+        followerId: currentUserId,
+      },
+      select: {
+        followingId: true,
+      }
+    })
+
+    const followedIds = followedUser.map(f => f.followingId)
+
+    const users = await prisma.user.findMany({
+      where: {
+        id: {
+          notIn: [...followedIds, currentUserId]
+        }
+      },
+      select: {
+        id: true,
+        username: true,
+        fullname: true,
+        image: true,
+      },
+      take: 5,
+      orderBy: {
+        createdAt: 'desc'
+      }
+    })
+
+    res.status(200).json({
+      message: "Get user suggestions success",
+      data: users,
+    })
+  } catch (error) {
+    console.error("Error in GetUserSuggestions controller:", error);
+    return res.status(500).json({
+      message: "Server down",
+      error: error.message,
+    })
+  }
+}
 
 
 
