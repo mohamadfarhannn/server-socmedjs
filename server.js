@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import AuthRouter from './routes/auth.route.js'
 import UserRouter from './routes/user.route.js'
+import FollowRouter from './routes/follow.route.js'
 
 const app = express()
 const port = 3000
@@ -11,7 +12,8 @@ app.use(express.json())
 
 // routes
 app.use('/api/auth', AuthRouter)
-app.use('/api/user', UserRouter)    
+app.use('/api/user', UserRouter)
+app.use('/api/follow', FollowRouter)    
 
 // start server
 app.listen(port, () => {
