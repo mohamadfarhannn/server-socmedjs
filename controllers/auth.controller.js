@@ -2,6 +2,7 @@ import z from "zod";
 import prisma from "../utils/prisma.js";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
+import sendEmail from "../utils/sendEmail.js";
 
 export const RegisterController = async (req, res) => {
   try {
@@ -50,21 +51,49 @@ export const RegisterController = async (req, res) => {
       },
     });
 
-    const jwtSecret = process.env.JWT_SECRET;
-    const token = jwt.sign({ id: newUser.id }, jwtSecret, { expiresIn: "6d" });
+    // 7. Generate OTP dan simpan ke database
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString(); // 6 digit random
+    const hashedOtp = await bcrypt.hash(otpCode, 10);
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 menit dari sekarang
 
-    // 7. Kirim respons sukses
+    await prisma.otpVerivication.create({
+      data: {
+        userId: newUser.id,
+        otp_code: hashedOtp,
+        expires_at: expiresAt,
+      },
+    });
+
+    // 8. Kirim email OTP
+    const emailHtml = `
+      <div style="font-family: sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #ddd; border-radius: 10px;">
+        <h2 style="color: #333; text-align: center;">Verifikasi Email Anda</h2>
+        <p>Halo <strong>${newUser.fullname}</strong>,</p>
+        <p>Terima kasih telah mendaftar di aplikasi kami. Berikut adalah kode OTP Anda untuk mengaktifkan akun:</p>
+        <div style="text-align: center; margin: 30px 0;">
+          <span style="font-size: 32px; font-weight: bold; background: #f4f4f4; padding: 15px 25px; border-radius: 8px; letter-spacing: 5px; color: #111;">
+            ${otpCode}
+          </span>
+        </div>
+        <p>Kode ini hanya berlaku selama <strong>15 menit</strong>. Jangan bagikan kode ini kepada siapa pun.</p>
+        <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
+        <p style="font-size: 12px; color: #888; text-align: center;">Jika Anda tidak merasa mendaftar di aplikasi ini, abaikan saja email ini.</p>
+      </div>
+    `;
+    
+    await sendEmail({
+      to: newUser.email,
+      subject: "Kode Verifikasi OTP - DailyGrind",
+      html: emailHtml,
+    });
+
+    // 9. Kirim respons sukses
     return res.status(201).json({
-      message: "Register success",
+      message: "Registrasi berhasil, silakan periksa email Anda untuk memasukkan kode verifikasi.",
       data: {
         id: newUser.id,
-        fullname: newUser.fullname,
-        username: newUser.username,
         email: newUser.email,
-        image: newUser.image,
-        bio: newUser.bio,
       },
-      token: token,
     });
   } catch (err) {
     // Catch Zod validation errors
@@ -113,6 +142,13 @@ export const LoginController = async (req, res) => {
       });
     }
 
+    // Pengecekan apakah user sudah verifikasi OTP, kalo belum gabisa login
+    if (!existingUser.is_verified) {
+      return res.status(403).json({
+        message: "Harap verifikasi email Anda terlebih dahulu!",
+      });
+    }
+
     const comparePassword = bcrypt.compareSync(password, existingUser.password);
     if (!comparePassword) {
       return res.status(401).json({
@@ -151,4 +187,147 @@ export const GetUser = async (req, res) => {
     message: "Get user success",
     data: req.user,
   });
+};
+
+// Verifikasi OTP (auth/verify-email)
+export const VerifyOTPController = async (req, res) => {
+  try {
+    const { email, otp_code } = req.body;
+
+    if (!email || !otp_code) {
+      return res.status(400).json({ message: "Email dan kode OTP wajib diisi" });
+    }
+
+    // Cari user berdasarkan email
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user) {
+      return res.status(404).json({ message: "User tidak ditemukan" });
+    }
+
+    if (user.is_verified) {
+      return res.status(400).json({ message: "Akun sudah diverifikasi sebelumnya" });
+    }
+
+    // Cari OTP berdasarkan userId
+    const otpRecord = await prisma.otpVerivication.findUnique({
+      where: { userId: user.id },
+    });
+
+    if (!otpRecord) {
+      return res.status(400).json({ message: "Kode OTP tidak ditemukan atau sudah hangus" });
+    }
+
+    // Cek apakah expired
+    if (new Date() > otpRecord.expires_at) {
+      // Hapus OTP yang sudah expired
+      await prisma.otpVerivication.delete({ where: { userId: user.id } });
+      return res.status(400).json({ message: "Kode OTP sudah kedaluwarsa. Silakan minta kode baru." });
+    }
+
+    // Validasi kode OTP
+    const isValidOtp = await bcrypt.compare(otp_code, otpRecord.otp_code);
+    if (!isValidOtp) {
+      return res.status(400).json({ message: "Kode OTP salah" });
+    }
+
+    // Jika valid: Ubah status is_verified dan hapus record OTP
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { is_verified: true },
+    });
+
+    await prisma.otpVerivication.delete({ where: { userId: user.id } });
+
+    // Buatkan token JWT (agar user bisa langsung login di frontend)
+    const jwtSecret = process.env.JWT_SECRET;
+    const token = jwt.sign({ id: user.id }, jwtSecret, { expiresIn: "6d" });
+
+    return res.status(200).json({
+      message: "Verifikasi email berhasil!",
+      data: {
+        id: user.id,
+        fullname: user.fullname,
+        username: user.username,
+        email: user.email,
+        image: user.image,
+        bio: user.bio,
+      },
+      token: token,
+    });
+  } catch (error) {
+    console.error("Verify OTP Error:", error);
+    return res.status(500).json({
+      message: "Server Error!",
+      error: error.message,
+    });
+  }
+};
+
+export const ResendOTPController = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ message: "Email wajib diisi" });
+    }
+
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user) {
+      return res.status(404).json({ message: "User tidak ditemukan" });
+    }
+
+    if (user.is_verified) {
+      return res.status(400).json({ message: "Akun sudah diverifikasi, tidak perlu OTP lagi." });
+    }
+
+    // Hapus OTP lama jika masih ada
+    const existingOtp = await prisma.otpVerivication.findUnique({ where: { userId: user.id } });
+    if (existingOtp) {
+      await prisma.otpVerivication.delete({ where: { userId: user.id } });
+    }
+
+    // Generate OTP baru
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const hashedOtp = await bcrypt.hash(otpCode, 10);
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+
+    await prisma.otpVerivication.create({
+      data: {
+        userId: user.id,
+        otp_code: hashedOtp,
+        expires_at: expiresAt,
+      },
+    });
+
+    // Kirim email
+    const emailHtml = `
+      <div style="font-family: sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #ddd; border-radius: 10px;">
+        <h2 style="color: #333; text-align: center;">Kirim Ulang Kode Verifikasi</h2>
+        <p>Halo <strong>${user.fullname}</strong>,</p>
+        <p>Anda meminta untuk mengirim ulang kode OTP. Berikut adalah kode OTP baru Anda:</p>
+        <div style="text-align: center; margin: 30px 0;">
+          <span style="font-size: 32px; font-weight: bold; background: #f4f4f4; padding: 15px 25px; border-radius: 8px; letter-spacing: 5px; color: #111;">
+            ${otpCode}
+          </span>
+        </div>
+        <p>Kode ini hanya berlaku selama <strong>15 menit</strong>.</p>
+        <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
+        <p style="font-size: 12px; color: #888; text-align: center;">Jika Anda tidak merasa meminta ini, abaikan saja email ini.</p>
+      </div>
+    `;
+
+    await sendEmail({
+      to: user.email,
+      subject: "Kirim Ulang OTP - DailyGrind",
+      html: emailHtml,
+    });
+
+    return res.status(200).json({ message: "Kode OTP baru telah dikirim ke email Anda." });
+  } catch (error) {
+    console.error("Resend OTP Error:", error);
+    return res.status(500).json({
+      message: "Server Error!",
+      error: error.message,
+    });
+  }
 };
