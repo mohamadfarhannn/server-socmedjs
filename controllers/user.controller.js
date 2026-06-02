@@ -3,6 +3,7 @@ import prisma from "../utils/prisma.js";
 import cloudinary from "../utils/cloudinary.js";
 
 export const GetUserByUsername = async (req, res) => {
+  // req route parameter (untuk cari user secara spesifik)
   const { username } = req.params
   
   try {
@@ -38,6 +39,7 @@ export const GetUserByUsername = async (req, res) => {
 export const GetSearchUsers = async (req, res) => {
   try {
 
+    // req query parameters (untuk mencari user secara umum/berdasarkan keyword)
     const { username, query, q } = req.query
 
     const searchTerm = (username || query || q || '').trim();
@@ -161,7 +163,7 @@ export const UpdateUserAvatar = async (req, res) => {
       })
     }
 
-    // get current dari req user id
+    // ambil data current user (user yang login saat ini) dari req user id (untuk cek imageId user sebelumnya)
     const currentUser = await prisma.user.findUnique({
       where: {
         id: req.user.id,
@@ -173,9 +175,10 @@ export const UpdateUserAvatar = async (req, res) => {
       await cloudinary.uploader.destroy(currentUser.imageId)
     }
 
-    // upload image baru dengan buffer multer
+    // Ubah buffer(data gambar yang diunggah multer) menjadi string base64 dengan format data URI agar bisa diupload ke cloudinary
     const fileStr = `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`
 
+    // Upload image ke cloudinary
     const result = await cloudinary.uploader.upload(fileStr, {
       folder: "avatar",
       transformation: {
@@ -184,10 +187,10 @@ export const UpdateUserAvatar = async (req, res) => {
         crop: "fill"
       },
       resource_type: "image",
-      size_limit: "5mb",
+      size_limit: "2mb",
     })
 
-    // Update userImage dan imageId di database tabel user
+    // Update userImage dan imageId di database tabel user (simpan data ke database dan mengembalikan data yang diupdate)
     const updateUserAva = await prisma.user.update({
       where: {
         id: req.user.id,

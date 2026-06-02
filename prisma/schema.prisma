@@ -19,6 +19,7 @@ model User {
   fullname  String   @db.VarChar(255)
   username  String   @unique @db.VarChar(255)
   password  String   @db.VarChar(255)
+  is_verified Boolean  @default(false)
   bio       String?   @db.Text
   image     String?   @db.VarChar(255)
   imageId   String?   @db.VarChar(255)
@@ -34,9 +35,18 @@ model User {
   likes Likes[]
   followers Follows[] @relation("Follower")
   followings Follows[] @relation("Following")
+  otp_data OtpVerivication?
 
   @@index([username(ops: raw("gin_trgm_ops"))], type: Gin)
   @@index([fullname(ops: raw("gin_trgm_ops"))], type: Gin)
+}
+
+model OtpVerivication {
+  id Int @id @default(autoincrement()) 
+  otp_code   String   // Kode OTP-nya (Bisa di-hash pakai bcrypt biar lebih aman)
+  expires_at DateTime // Kapan OTP ini hangus
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     Int      @unique
 }
 
 model Post {
