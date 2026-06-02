@@ -3,6 +3,7 @@ import prisma from "../utils/prisma.js";
 import cloudinary from "../utils/cloudinary.js";
 
 export const GetUserByUsername = async (req, res) => {
+  // req route parameter (untuk cari user secara spesifik)
   const { username } = req.params
   
   try {
@@ -38,6 +39,7 @@ export const GetUserByUsername = async (req, res) => {
 export const GetSearchUsers = async (req, res) => {
   try {
 
+    // req query parameters (untuk mencari user secara umum/berdasarkan keyword)
     const { username, query, q } = req.query
 
     const searchTerm = (username || query || q || '').trim();
