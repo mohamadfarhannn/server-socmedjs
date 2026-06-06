@@ -331,3 +331,179 @@ export const ResendOTPController = async (req, res) => {
     });
   }
 };
+
+export const ForgotPasswordController = async (req, res) => {
+  try {
+    const forgotSchema = z.object({
+      email: z.string().email("Format email tidak valid. contoh: example@mail.com"),
+    });
+
+    const validatedData = forgotSchema.parse(req.body);
+
+    // 1. Cek apakah user terdaftar
+    const user = await prisma.user.findUnique({
+      where: { email: validatedData.email },
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        message: "Email tidak terdaftar di sistem kami.",
+      });
+    }
+
+    // 2. Hapus OTP lama jika ada
+    const existingOtp = await prisma.otpVerivication.findUnique({
+      where: { userId: user.id },
+    });
+    if (existingOtp) {
+      await prisma.otpVerivication.delete({
+        where: { userId: user.id },
+      });
+    }
+
+    // 3. Generate OTP baru
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const hashedOtp = await bcrypt.hash(otpCode, 10);
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 menit
+
+    // 4. Simpan ke database
+    await prisma.otpVerivication.create({
+      data: {
+        userId: user.id,
+        otp_code: hashedOtp,
+        expires_at: expiresAt,
+      },
+    });
+
+    // 5. Kirim email
+    const emailHtml = `
+      <div style="font-family: sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #ddd; border-radius: 10px;">
+        <h2 style="color: #d33; text-align: center;">Permintaan Reset Password</h2>
+        <p>Halo <strong>${user.fullname}</strong>,</p>
+        <p>Kami menerima permintaan untuk mereset password akun DailyGrind Anda. Gunakan kode OTP di bawah ini untuk melanjutkan:</p>
+        <div style="text-align: center; margin: 30px 0;">
+          <span style="font-size: 32px; font-weight: bold; background: #f4f4f4; padding: 15px 25px; border-radius: 8px; letter-spacing: 5px; color: #111;">
+            ${otpCode}
+          </span>
+        </div>
+        <p>Kode OTP ini hanya berlaku selama <strong>15 menit</strong>. Jangan berikan kode ini kepada siapapun.</p>
+        <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
+        <p style="font-size: 12px; color: #888; text-align: center;">Jika Anda tidak merasa melakukan permintaan ini, silakan abaikan email ini.</p>
+      </div>
+    `;
+
+    await sendEmail({
+      to: user.email,
+      subject: "Reset Password OTP - DailyGrind",
+      html: emailHtml,
+    });
+
+    return res.status(200).json({
+      message: "Kode OTP untuk reset password telah dikirim ke email Anda.",
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      const errors = error.issues.map((i) => i.message);
+      return res.status(400).json({ message: errors });
+    }
+    console.error("Forgot Password Error:", error);
+    return res.status(500).json({
+      message: "Server Error!",
+      error: error.message,
+    });
+  }
+};
+
+export const ResetPasswordController = async (req, res) => {
+  try {
+    const resetSchema = z.object({
+      email: z.string().email("Format email tidak valid"),
+      otp_code: z.string().length(6, "Kode OTP harus 6 digit"),
+      new_password: z.string().min(6, "Password minimal 6 karakter"),
+    });
+
+    const validatedData = resetSchema.parse(req.body);
+
+    // 1. Cari user berdasarkan email
+    const user = await prisma.user.findUnique({
+      where: { email: validatedData.email },
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        message: "User tidak ditemukan",
+      });
+    }
+
+    // 2. Cari data OTP di database
+    const otpRecord = await prisma.otpVerivication.findUnique({
+      where: { userId: user.id },
+    });
+
+    if (!otpRecord) {
+      return res.status(400).json({
+        message: "Kode OTP tidak ditemukan atau sudah hangus. Silakan minta kode baru.",
+      });
+    }
+
+    // 3. Cek expired
+    if (new Date() > otpRecord.expires_at) {
+      await prisma.otpVerivication.delete({ where: { userId: user.id } });
+      return res.status(400).json({
+        message: "Kode OTP sudah kedaluwarsa. Silakan minta kode baru.",
+      });
+    }
+
+    // 4. Validasi kode OTP
+    const isValidOtp = await bcrypt.compare(validatedData.otp_code, otpRecord.otp_code);
+    if (!isValidOtp) {
+      return res.status(400).json({
+        message: "Kode OTP yang Anda masukkan salah.",
+      });
+    }
+
+    // 5. Enkripsi password baru
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(validatedData.new_password, salt);
+
+    // 6. Update password user di DB & Hapus record OTP
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { password: hashedPassword },
+    });
+
+    await prisma.otpVerivication.delete({
+      where: { userId: user.id },
+    });
+
+    return res.status(200).json({
+      message: "Password Anda berhasil diperbarui. Silakan login kembali.",
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      const errors = error.issues.map((i) => i.message);
+      return res.status(400).json({ message: errors });
+    }
+    console.error("Reset Password Error:", error);
+    return res.status(500).json({
+      message: "Server Error!",
+      error: error.message,
+    });
+  }
+};
+
+export const LogoutController = async (req, res) => {
+  try {
+    // Karena menggunakan stateless JWT (disimpan di LocalStorage / Cookies di sisi Client),
+    // kita cukup mengembalikan respon sukses. Client-side lah yang bertugas menghapus token.
+    return res.status(200).json({
+      message: "Logout berhasil!",
+    });
+  } catch (error) {
+    console.error("Logout Error:", error);
+    return res.status(500).json({
+      message: "Server Error!",
+      error: error.message,
+    });
+  }
+};
