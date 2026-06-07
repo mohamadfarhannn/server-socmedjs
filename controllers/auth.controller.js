@@ -3,6 +3,7 @@ import prisma from "../utils/prisma.js";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import sendEmail from "../utils/sendEmail.js";
+import { OAuth2Client } from 'google-auth-library';
 
 export const RegisterController = async (req, res) => {
   try {
@@ -177,6 +178,99 @@ export const LoginController = async (req, res) => {
     console.error("Server Error:", error);
     return res.status(500).json({
       message: "Server Error!",
+      error: error.message,
+    });
+  }
+};
+
+// Auth Google
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+export const GoogleLoginController = async (req, res) => {
+  try {
+    // 1. Tangkap ID Token yang dikirim dari React
+    const { googleToken } = req.body;
+
+    if (!googleToken) {
+      return res.status(400).json({ message: "Token Google tidak ditemukan" });
+    }
+
+    // 2. Verifikasi keaslian token langsung ke server Google (Mendukung ID Token JWT maupun Access Token)
+    let email, name, picture;
+    try {
+      const ticket = await googleClient.verifyIdToken({
+        idToken: googleToken,
+        audience: process.env.GOOGLE_CLIENT_ID,
+      });
+      const payload = ticket.getPayload();
+      email = payload.email;
+      name = payload.name;
+      picture = payload.picture;
+    } catch (verifyError) {
+      // Jika gagal verifikasi ID Token, coba ambil data dari Google UserInfo API menggunakan token sebagai Access Token
+      const response = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+        headers: { Authorization: `Bearer ${googleToken}` },
+      });
+      if (!response.ok) {
+        throw new Error("Token Google tidak valid atau sudah kedaluwarsa");
+      }
+      const data = await response.json();
+      email = data.email;
+      name = data.name;
+      picture = data.picture;
+    }
+
+    // 4. Cari user di database berdasarkan email
+    let user = await prisma.user.findUnique({
+      where: { email: email },
+    });
+
+    // 5. Jika user belum ada (Skenario Register Otomatis)
+    if (!user) {
+      // Bikin nilai acak untuk password
+      const salt = await bcrypt.genSalt(10);
+      
+      // Bikin password acak yang sangat rumit karena user tidak akan pakai ini untuk login manual
+      const randomPassword = Math.random().toString(36).slice(-12);
+      const hashedPassword = await bcrypt.hash(randomPassword, salt);
+
+      // Ekstrak username dari email (misal: farhan@mail.com -> farhan)
+      // Ditambah angka random agar tidak bentrok jika ada nama yang sama
+      const baseUsername = `${email.split("@")[0]}${Math.floor(100 + Math.random() * 900)}`;
+
+      user = await prisma.user.create({
+        data: {
+          fullname: name,
+          username: baseUsername,
+          email: email,
+          password: hashedPassword,
+          image: picture, // Gunakan foto profil dari Google
+          is_verified: true, // Otomatis true karena email Google sudah pasti valid
+        },
+      });
+    }
+
+    // 6. Jika user sudah ada (atau baru saja dibuat), buatkan JWT Token aplikasi kita
+    const jwtSecret = process.env.JWT_SECRET;
+    const token = jwt.sign({ id: user.id }, jwtSecret, { expiresIn: "6d" });
+
+    // 7. Kirim respons sukses yang strukturnya sama persis dengan LoginController biasa
+    return res.status(200).json({
+      message: "Login with Google berhasil",
+      data: {
+        id: user.id,
+        fullname: user.fullname,
+        username: user.username,
+        email: user.email,
+        image: user.image,
+        bio: user.bio,
+      },
+      token: token,
+    });
+
+  } catch (error) {
+    console.error("Google Auth Error:", error);
+    return res.status(401).json({
+      message: "Autentikasi Google gagal atau token tidak valid",
       error: error.message,
     });
   }
@@ -507,3 +601,4 @@ export const LogoutController = async (req, res) => {
     });
   }
 };
+
