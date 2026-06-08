@@ -1,0 +1,124 @@
+paths:
+  /api/follow:
+    post:
+      tags:
+        - Follow
+      summary: Follow a user account
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - followedUserId
+              properties:
+                followedUserId:
+                  type: integer
+                  description: The ID of the user to follow
+                  example: 2
+      responses:
+        200:
+          description: User followed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: User followed successfully
+                  data:
+                    type: object
+                    properties:
+                      followerId:
+                        type: integer
+                        example: 1
+                      followingId:
+                        type: integer
+                        example: 2
+                      createdAt:
+                        type: string
+                        example: 2026-06-08T12:00:00.000Z
+        400:
+          description: Missing/invalid parameter, trying to follow yourself, or already followed
+        401:
+          description: Unauthorized
+        404:
+          description: Target user to follow not found
+        500:
+          description: Server Error
+
+  /api/follow/{id}:
+    delete:
+      tags:
+        - Follow
+      summary: Unfollow a user account
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+          description: The ID of the user to unfollow
+          example: 2
+      responses:
+        200:
+          description: User unfollowed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: User unfollowed successfully
+        400:
+          description: Invalid ID, trying to unfollow yourself, or not following the user
+        401:
+          description: Unauthorized
+        404:
+          description: Target user not found
+        500:
+          description: Server Error
+
+  /api/follow/suggestions:
+    get:
+      tags:
+        - Follow
+      summary: Get user suggestions to follow
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: Suggestions retrieved successfully (returns up to 5 newest users not followed yet)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Get user suggestions success
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        username:
+                          type: string
+                        fullname:
+                          type: string
+                        image:
+                          type: string
+                          nullable: true
+        401:
+          description: Unauthorized
+        500:
+          description: Server Error
