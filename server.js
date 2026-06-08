@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import express from 'express';
+import { swaggerDocs } from './utils/swagger.js';
 import AuthRouter from './routes/auth.route.js'
 import UserRouter from './routes/user.route.js'
 import FollowRouter from './routes/follow.route.js'
@@ -35,4 +36,5 @@ app.use('/api/comment',CommentRouter)
 // start server
 app.listen(port, () => {
   console.log(`Server jalan di port ${port}`)
+  swaggerDocs(app, port);
 })
