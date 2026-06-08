@@ -71,25 +71,80 @@ export const CreatePost = async (req, res) => {
 
 export const GetFeed = async(req, res) => {
   try {
-    const posts = await prisma.post.findMany(
-    {
-      include: {
-        user: {
-          select: {
-            id: true,
-            username: true,
-            fullname: true,
-            image: true,
-          },
-        },
+    const currentUserId = req.user.id;
+    
+    // 1. Ambil ID user yang difollow oleh current user
+    const followings = await prisma.follows.findMany({
+      where: {
+        followerId: Number(currentUserId),
       },
-      orderBy: {
-        createdAt: "desc",
-      }
+      select: {
+        followingId: true,
+      },
     })
 
+  // Ambil postingan dari user yang di following + postingan diri sendiri
+    const followingIds = followings.map((following) => following.followingId)
+    // Gabungkan ID following dengan ID diri sendiri
+    const feedUserIds = [...followingIds, Number(currentUserId)]
+
+    // 2. Setup Pagination
+    let pageNumber = req.query.page ? Number(req.query.page) : 1;
+    let limitNumber = req.query.limit ? Number(req.query.limit) : 10;
+    
+    // Proteksi limit maksimal (diubah menjadi 30 agar lebih fleksibel)
+    if (limitNumber > 20) {
+      limitNumber = 20;
+    }
+    
+    const skip = (pageNumber - 1) * limitNumber
+
+    // 3. Eksekusi query Count dan FindMany secara paralel menggunakan Promise.all 
+    // untuk mempercepat waktu response API
+    const [totalPosts, posts] = await Promise.all([
+      prisma.post.count({
+        where: {
+          userId: {
+            in: feedUserIds,
+          }
+        }
+      }),
+      prisma.post.findMany({
+        where: {
+          userId: {
+            in: feedUserIds,
+          }
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              username: true,
+              fullname: true,
+              image: true,
+            },
+          },
+        },
+        orderBy: {
+          createdAt: "desc",
+        },
+        take: limitNumber,
+        skip,
+      })
+    ])
+
+    const totalPages = Math.ceil(totalPosts / limitNumber)
+
     return res.status(200).json({
+      success: true,
+      code: 200,
       message: "Get feed success",
+      pagination: {
+        current_page: pageNumber,
+        total_pages: totalPages,
+        total_items: totalPosts,
+        limit_per_page: limitNumber,
+      },
       data: posts,
     })
     
@@ -118,6 +173,23 @@ export const GetDetailPost = async(req, res) => {
             fullname: true,
             image: true,
           },
+        },
+        comments: {
+          select: {
+            content: true,
+            createdAt: true,
+            user: {
+              select: {
+              id: true,
+              username: true,
+              fullname: true,
+              image: true,
+              },
+            },
+          },
+          orderBy: {
+            createdAt: "desc",
+          }
         },
       },
     })

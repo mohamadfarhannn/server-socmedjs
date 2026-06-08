@@ -3,6 +3,7 @@ import prisma from "../utils/prisma.js";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import sendEmail from "../utils/sendEmail.js";
+import { OAuth2Client } from 'google-auth-library';
 
 export const RegisterController = async (req, res) => {
   try {
@@ -182,6 +183,99 @@ export const LoginController = async (req, res) => {
   }
 };
 
+// Auth Google
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+export const GoogleLoginController = async (req, res) => {
+  try {
+    // 1. Tangkap ID Token yang dikirim dari React
+    const { googleToken } = req.body;
+
+    if (!googleToken) {
+      return res.status(400).json({ message: "Token Google tidak ditemukan" });
+    }
+
+    // 2. Verifikasi keaslian token langsung ke server Google (Mendukung ID Token JWT maupun Access Token)
+    let email, name, picture;
+    try {
+      const ticket = await googleClient.verifyIdToken({
+        idToken: googleToken,
+        audience: process.env.GOOGLE_CLIENT_ID,
+      });
+      const payload = ticket.getPayload();
+      email = payload.email;
+      name = payload.name;
+      picture = payload.picture;
+    } catch (verifyError) {
+      // Jika gagal verifikasi ID Token, coba ambil data dari Google UserInfo API menggunakan token sebagai Access Token
+      const response = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+        headers: { Authorization: `Bearer ${googleToken}` },
+      });
+      if (!response.ok) {
+        throw new Error("Token Google tidak valid atau sudah kedaluwarsa");
+      }
+      const data = await response.json();
+      email = data.email;
+      name = data.name;
+      picture = data.picture;
+    }
+
+    // 4. Cari user di database berdasarkan email
+    let user = await prisma.user.findUnique({
+      where: { email: email },
+    });
+
+    // 5. Jika user belum ada (Skenario Register Otomatis)
+    if (!user) {
+      // Bikin nilai acak untuk password
+      const salt = await bcrypt.genSalt(10);
+      
+      // Bikin password acak yang sangat rumit karena user tidak akan pakai ini untuk login manual
+      const randomPassword = Math.random().toString(36).slice(-12);
+      const hashedPassword = await bcrypt.hash(randomPassword, salt);
+
+      // Ekstrak username dari email (misal: farhan@mail.com -> farhan)
+      // Ditambah angka random agar tidak bentrok jika ada nama yang sama
+      const baseUsername = `${email.split("@")[0]}${Math.floor(100 + Math.random() * 900)}`;
+
+      user = await prisma.user.create({
+        data: {
+          fullname: name,
+          username: baseUsername,
+          email: email,
+          password: hashedPassword,
+          image: picture, // Gunakan foto profil dari Google
+          is_verified: true, // Otomatis true karena email Google sudah pasti valid
+        },
+      });
+    }
+
+    // 6. Jika user sudah ada (atau baru saja dibuat), buatkan JWT Token aplikasi kita
+    const jwtSecret = process.env.JWT_SECRET;
+    const token = jwt.sign({ id: user.id }, jwtSecret, { expiresIn: "6d" });
+
+    // 7. Kirim respons sukses yang strukturnya sama persis dengan LoginController biasa
+    return res.status(200).json({
+      message: "Login with Google berhasil",
+      data: {
+        id: user.id,
+        fullname: user.fullname,
+        username: user.username,
+        email: user.email,
+        image: user.image,
+        bio: user.bio,
+      },
+      token: token,
+    });
+
+  } catch (error) {
+    console.error("Google Auth Error:", error);
+    return res.status(401).json({
+      message: "Autentikasi Google gagal atau token tidak valid",
+      error: error.message,
+    });
+  }
+};
+
 export const GetUser = async (req, res) => {
   res.status(200).json({
     message: "Get user success",
@@ -331,3 +425,180 @@ export const ResendOTPController = async (req, res) => {
     });
   }
 };
+
+export const ForgotPasswordController = async (req, res) => {
+  try {
+    const forgotSchema = z.object({
+      email: z.string().email("Format email tidak valid. contoh: example@mail.com"),
+    });
+
+    const validatedData = forgotSchema.parse(req.body);
+
+    // 1. Cek apakah user terdaftar
+    const user = await prisma.user.findUnique({
+      where: { email: validatedData.email },
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        message: "Email tidak terdaftar di sistem kami.",
+      });
+    }
+
+    // 2. Hapus OTP lama jika ada
+    const existingOtp = await prisma.otpVerivication.findUnique({
+      where: { userId: user.id },
+    });
+    if (existingOtp) {
+      await prisma.otpVerivication.delete({
+        where: { userId: user.id },
+      });
+    }
+
+    // 3. Generate OTP baru
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const hashedOtp = await bcrypt.hash(otpCode, 10);
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 menit
+
+    // 4. Simpan ke database
+    await prisma.otpVerivication.create({
+      data: {
+        userId: user.id,
+        otp_code: hashedOtp,
+        expires_at: expiresAt,
+      },
+    });
+
+    // 5. Kirim email
+    const emailHtml = `
+      <div style="font-family: sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #ddd; border-radius: 10px;">
+        <h2 style="color: #d33; text-align: center;">Permintaan Reset Password</h2>
+        <p>Halo <strong>${user.fullname}</strong>,</p>
+        <p>Kami menerima permintaan untuk mereset password akun DailyGrind Anda. Gunakan kode OTP di bawah ini untuk melanjutkan:</p>
+        <div style="text-align: center; margin: 30px 0;">
+          <span style="font-size: 32px; font-weight: bold; background: #f4f4f4; padding: 15px 25px; border-radius: 8px; letter-spacing: 5px; color: #111;">
+            ${otpCode}
+          </span>
+        </div>
+        <p>Kode OTP ini hanya berlaku selama <strong>15 menit</strong>. Jangan berikan kode ini kepada siapapun.</p>
+        <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
+        <p style="font-size: 12px; color: #888; text-align: center;">Jika Anda tidak merasa melakukan permintaan ini, silakan abaikan email ini.</p>
+      </div>
+    `;
+
+    await sendEmail({
+      to: user.email,
+      subject: "Reset Password OTP - DailyGrind",
+      html: emailHtml,
+    });
+
+    return res.status(200).json({
+      message: "Kode OTP untuk reset password telah dikirim ke email Anda.",
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      const errors = error.issues.map((i) => i.message);
+      return res.status(400).json({ message: errors });
+    }
+    console.error("Forgot Password Error:", error);
+    return res.status(500).json({
+      message: "Server Error!",
+      error: error.message,
+    });
+  }
+};
+
+export const ResetPasswordController = async (req, res) => {
+  try {
+    const resetSchema = z.object({
+      email: z.string().email("Format email tidak valid"),
+      otp_code: z.string().length(6, "Kode OTP harus 6 digit"),
+      new_password: z.string().min(6, "Password minimal 6 karakter"),
+    });
+
+    const validatedData = resetSchema.parse(req.body);
+
+    // 1. Cari user berdasarkan email
+    const user = await prisma.user.findUnique({
+      where: { email: validatedData.email },
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        message: "User tidak ditemukan",
+      });
+    }
+
+    // 2. Cari data OTP di database
+    const otpRecord = await prisma.otpVerivication.findUnique({
+      where: { userId: user.id },
+    });
+
+    if (!otpRecord) {
+      return res.status(400).json({
+        message: "Kode OTP tidak ditemukan atau sudah hangus. Silakan minta kode baru.",
+      });
+    }
+
+    // 3. Cek expired
+    if (new Date() > otpRecord.expires_at) {
+      await prisma.otpVerivication.delete({ where: { userId: user.id } });
+      return res.status(400).json({
+        message: "Kode OTP sudah kedaluwarsa. Silakan minta kode baru.",
+      });
+    }
+
+    // 4. Validasi kode OTP
+    const isValidOtp = await bcrypt.compare(validatedData.otp_code, otpRecord.otp_code);
+    if (!isValidOtp) {
+      return res.status(400).json({
+        message: "Kode OTP yang Anda masukkan salah.",
+      });
+    }
+
+    // 5. Enkripsi password baru
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(validatedData.new_password, salt);
+
+    // 6. Update password user di DB & Hapus record OTP
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { password: hashedPassword },
+    });
+
+    await prisma.otpVerivication.delete({
+      where: { userId: user.id },
+    });
+
+    return res.status(200).json({
+      message: "Password Anda berhasil diperbarui. Silakan login kembali.",
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      const errors = error.issues.map((i) => i.message);
+      return res.status(400).json({ message: errors });
+    }
+    console.error("Reset Password Error:", error);
+    return res.status(500).json({
+      message: "Server Error!",
+      error: error.message,
+    });
+  }
+};
+
+export const LogoutController = async (req, res) => {
+  try {
+    // Karena menggunakan stateless JWT (disimpan di LocalStorage / Cookies di sisi Client),
+    // kita cukup mengembalikan respon sukses. Client-side lah yang bertugas menghapus token.
+    return res.status(200).json({
+      message: "Logout berhasil!",
+    });
+  } catch (error) {
+    console.error("Logout Error:", error);
+    return res.status(500).json({
+      message: "Server Error!",
+      error: error.message,
+    });
+  }
+};
+
