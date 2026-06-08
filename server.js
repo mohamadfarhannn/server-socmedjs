@@ -33,8 +33,10 @@ app.use('/api/follow', FollowRouter)
 app.use('/api/feed', FeedRouter)
 app.use('/api/comment',CommentRouter)
 
+// initialize swagger
+swaggerDocs(app, port);
+
 // start server
 app.listen(port, () => {
   console.log(`Server jalan di port ${port}`)
-  swaggerDocs(app, port);
 })
