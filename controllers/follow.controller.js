@@ -250,5 +250,32 @@ export const GetUserSuggestions = async (req, res) => {
   }
 }
 
+// Cek apakah user sedang following atau tidak (Untuk tombol Follow/Unfollow)
+export const checkUserFollowed = async (req, res) => {
+  try {
+    const currentUserId = req.user.id
+    const targetUserId = Number(req.params.id)
+
+    const checkFollowed = await prisma.follows.findUnique({
+      where:{
+        followerId_followingId: {
+          followerId: currentUserId,
+          followingId: targetUserId
+        }
+      }
+    })
+
+    return res.status(200).json({
+      data: !!checkFollowed,
+    })
+  } catch (error) {
+    console.error("Error in checkUserFollowed controller:", error);
+    return res.status(500).json({
+      message: "Server down",
+      error: error.message,
+    })
+  }
+}
+
 
 
