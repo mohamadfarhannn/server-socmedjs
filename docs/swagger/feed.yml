@@ -134,6 +134,12 @@ paths:
                           type: string
                         updatedAt:
                           type: string
+                        isLikedByMe:
+                          type: boolean
+                          example: true
+                        isBookmarkedByMe:
+                          type: boolean
+                          example: false
                         user:
                           type: object
                           properties:
