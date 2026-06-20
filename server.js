@@ -10,7 +10,7 @@ import LikeRouter from './routes/like.route.js'
 import BookmarkRouter from './routes/bookmark.route.js'
 
 const app = express()
-const port = 3000
+const PORT = process.env.PORT || 3000
 
 // middleware untuk parse body json, biar bisa baca req.body
 app.use(express.json())
@@ -38,9 +38,9 @@ app.use('/api/posts', LikeRouter)
 app.use('/api/bookmarks', BookmarkRouter)
 
 // initialize swagger
-swaggerDocs(app, port);
+swaggerDocs(app, PORT);
 
 // start server
-app.listen(port, () => {
-  console.log(`Server jalan di port ${port}`)
+app.listen(PORT, () => {
+  console.log(`Server jalan di port ${PORT}`)
 })
