@@ -2,18 +2,25 @@ import z from "zod";
 import prisma from "../utils/prisma.js";
 import cloudinary from "../utils/cloudinary.js";
 
-export const GetUserByUsername = async (req, res) => {
-  // req route parameter (untuk cari user secara spesifik)
+export const GetUserInfo = async (req, res) => {
   const { username } = req.params
+  const currentUserId = req.user.id
   
   try {
-    // Ambil data user by username dan omit(kecualikan) password dan imageId
+    // Hanya ambil data profil dan cek apakah kita follow user ini
     const user = await prisma.user.findUnique({
       where: {
         username: username,
-      }, omit: {
+      }, 
+      omit: {
         password: true,
         imageId: true,
+      },
+      include: {
+        followers: {
+          where: { followerId: currentUserId },
+          select: { followerId: true }
+        }
       }
     })
 
@@ -23,9 +30,15 @@ export const GetUserByUsername = async (req, res) => {
       })
     }
 
-    res.status(200).json({
+    const { followers, ...userData } = user;
+    const isFollowedByMe = followers.length > 0;
+
+    return res.status(200).json({
       message: "Get detail user success",
-      data: user,
+      data: {
+        ...userData,
+        isFollowedByMe
+      },
     })
   } catch (error) {
     console.error("Server Error:", error);
@@ -33,6 +46,192 @@ export const GetUserByUsername = async (req, res) => {
       message: "Server Error!",
       error: error.message,
     })
+  }
+}
+
+export const GetUserPosts = async (req, res) => {
+  try {
+    const { username } = req.params
+    const currentUserId = req.user.id
+    
+    let pageNumber = req.query.page ? Number(req.query.page) : 1;
+    let limitNumber = req.query.limit ? Number(req.query.limit) : 10;
+    if (limitNumber > 20) limitNumber = 20;
+    const skip = (pageNumber - 1) * limitNumber
+
+    // Cari ID dari username target
+    const targetUser = await prisma.user.findUnique({
+      where: { username },
+      select: { id: true }
+    })
+
+    if (!targetUser) return res.status(404).json({ message: "User not found" });
+
+    const [totalPosts, posts] = await Promise.all([
+      prisma.post.count({ where: { userId: targetUser.id } }),
+      prisma.post.findMany({
+        where: { userId: targetUser.id },
+        include: {
+          user: { select: { id: true, username: true, fullname: true, image: true } },
+          likes: { where: { userId: currentUserId }, select: { userId: true } },
+          bookmarks: { where: { userId: currentUserId }, select: { userId: true } }
+        },
+        orderBy: { createdAt: "desc" },
+        take: limitNumber,
+        skip,
+      })
+    ])
+
+    const formattedPosts = posts.map(post => {
+      const { likes, bookmarks, ...postData } = post;
+      return {
+        ...postData,
+        isLikedByMe: likes.length > 0,
+        isBookmarkedByMe: bookmarks.length > 0,
+      }
+    })
+
+    return res.status(200).json({
+      success: true,
+      pagination: {
+        current_page: pageNumber,
+        total_pages: Math.ceil(totalPosts / limitNumber),
+        total_items: totalPosts,
+        limit_per_page: limitNumber,
+      },
+      data: formattedPosts,
+    })
+  } catch (error) {
+    console.error("Server Error:", error);
+    return res.status(500).json({ message: "Server Error!", error: error.message })
+  }
+}
+
+export const GetUserLikedPosts = async (req, res) => {
+  try {
+    const { username } = req.params
+    const currentUserId = req.user.id
+    
+    let pageNumber = req.query.page ? Number(req.query.page) : 1;
+    let limitNumber = req.query.limit ? Number(req.query.limit) : 10;
+    if (limitNumber > 20) limitNumber = 20;
+    const skip = (pageNumber - 1) * limitNumber
+
+    const targetUser = await prisma.user.findUnique({
+      where: { username },
+      select: { id: true }
+    })
+
+    if (!targetUser) return res.status(404).json({ message: "User not found" });
+
+    const [totalLikes, likes] = await Promise.all([
+      prisma.likes.count({ where: { userId: targetUser.id } }),
+      prisma.likes.findMany({
+        where: { userId: targetUser.id },
+        include: {
+          post: {
+            include: {
+              user: { select: { id: true, username: true, fullname: true, image: true } },
+              likes: { where: { userId: currentUserId }, select: { userId: true } },
+              bookmarks: { where: { userId: currentUserId }, select: { userId: true } }
+            }
+          }
+        },
+        orderBy: { createdAt: "desc" },
+        take: limitNumber,
+        skip,
+      })
+    ])
+
+    const formattedPosts = likes.map(likeItem => {
+      // Ratakan struktur agar mendapat array post
+      const { likes, bookmarks, ...postData } = likeItem.post;
+      return {
+        ...postData,
+        isLikedByMe: likes.length > 0,
+        isBookmarkedByMe: bookmarks.length > 0,
+      }
+    })
+
+    return res.status(200).json({
+      success: true,
+      pagination: {
+        current_page: pageNumber,
+        total_pages: Math.ceil(totalLikes / limitNumber),
+        total_items: totalLikes,
+        limit_per_page: limitNumber,
+      },
+      data: formattedPosts,
+    })
+  } catch (error) {
+    console.error("Server Error:", error);
+    return res.status(500).json({ message: "Server Error!", error: error.message })
+  }
+}
+
+export const GetUserBookmarks = async (req, res) => {
+  try {
+    const { username } = req.params
+    const currentUserId = req.user.id
+    
+    const targetUser = await prisma.user.findUnique({
+      where: { username },
+      select: { id: true }
+    })
+
+    if (!targetUser) return res.status(404).json({ message: "User not found" });
+
+    // Keamanan: Tolak jika mencoba melihat bookmark orang lain
+    if (targetUser.id !== currentUserId) {
+      return res.status(403).json({ message: "You can only view your own bookmarks" });
+    }
+
+    let pageNumber = req.query.page ? Number(req.query.page) : 1;
+    let limitNumber = req.query.limit ? Number(req.query.limit) : 10;
+    if (limitNumber > 20) limitNumber = 20;
+    const skip = (pageNumber - 1) * limitNumber
+
+    const [totalBookmarks, bookmarks] = await Promise.all([
+      prisma.bookmarks.count({ where: { userId: targetUser.id } }),
+      prisma.bookmarks.findMany({
+        where: { userId: targetUser.id },
+        include: {
+          post: {
+            include: {
+              user: { select: { id: true, username: true, fullname: true, image: true } },
+              likes: { where: { userId: currentUserId }, select: { userId: true } },
+              bookmarks: { where: { userId: currentUserId }, select: { userId: true } }
+            }
+          }
+        },
+        orderBy: { createdAt: "desc" },
+        take: limitNumber,
+        skip,
+      })
+    ])
+
+    const formattedPosts = bookmarks.map(bookmarkItem => {
+      const { likes, bookmarks, ...postData } = bookmarkItem.post;
+      return {
+        ...postData,
+        isLikedByMe: likes.length > 0,
+        isBookmarkedByMe: bookmarks.length > 0,
+      }
+    })
+
+    return res.status(200).json({
+      success: true,
+      pagination: {
+        current_page: pageNumber,
+        total_pages: Math.ceil(totalBookmarks / limitNumber),
+        total_items: totalBookmarks,
+        limit_per_page: limitNumber,
+      },
+      data: formattedPosts,
+    })
+  } catch (error) {
+    console.error("Server Error:", error);
+    return res.status(500).json({ message: "Server Error!", error: error.message })
   }
 }
 
