@@ -1,0 +1,398 @@
+paths:
+  /api/auth/register:
+    post:
+      tags:
+        - Auth
+      summary: Register a new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - username
+                - fullname
+                - password
+              properties:
+                email:
+                  type: string
+                  example: user@example.com
+                username:
+                  type: string
+                  example: johndoe
+                fullname:
+                  type: string
+                  example: John Doe
+                password:
+                  type: string
+                  example: secret123
+      responses:
+        201:
+          description: User registered successfully. Email OTP sent.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Registrasi berhasil, silakan periksa email Anda untuk memasukkan kode verifikasi.
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                        example: 1
+                      email:
+                        type: string
+                        example: user@example.com
+        400:
+          description: Bad Request (Validation or duplicate user errors)
+        500:
+          description: Server Error
+
+  /api/auth/login:
+    post:
+      tags:
+        - Auth
+      summary: Login user (Email/Username and Password)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - password
+              properties:
+                email:
+                  type: string
+                  example: user@example.com
+                username:
+                  type: string
+                  example: johndoe
+                password:
+                  type: string
+                  example: secret123
+      responses:
+        201:
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Login success
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                      fullname:
+                        type: string
+                      username:
+                        type: string
+                      email:
+                        type: string
+                      image:
+                        type: string
+                        nullable: true
+                      bio:
+                        type: string
+                        nullable: true
+                  token:
+                    type: string
+        400:
+          description: Email or username and password are required
+        403:
+          description: Email is not verified yet
+        404:
+          description: User not found
+        401:
+          description: Incorrect password
+        500:
+          description: Server Error
+
+  /api/auth/verify-email:
+    post:
+      tags:
+        - Auth
+      summary: Verify email using OTP code sent via email
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - otp_code
+              properties:
+                email:
+                  type: string
+                  example: user@example.com
+                otp_code:
+                  type: string
+                  example: "123456"
+      responses:
+        200:
+          description: Verification successful, returns token
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Verifikasi email berhasil!
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                      fullname:
+                        type: string
+                      username:
+                        type: string
+                      email:
+                        type: string
+                      image:
+                        type: string
+                      bio:
+                        type: string
+                  token:
+                    type: string
+        400:
+          description: Missing parameters, already verified, or invalid/expired OTP
+        404:
+          description: User not found
+        500:
+          description: Server Error
+
+  /api/auth/resend-otp:
+    post:
+      tags:
+        - Auth
+      summary: Resend verification OTP to email
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+              properties:
+                email:
+                  type: string
+                  example: user@example.com
+      responses:
+        200:
+          description: OTP resent successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Kode OTP baru telah dikirim ke email Anda.
+        400:
+          description: Missing email, or email already verified
+        404:
+          description: User not found
+        500:
+          description: Server Error
+
+  /api/auth/me:
+    get:
+      tags:
+        - Auth
+      summary: Get current logged-in user profile (Session check)
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: Success retrieving user data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Get user success
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                      email:
+                        type: string
+                      fullname:
+                        type: string
+                      username:
+                        type: string
+                      is_verified:
+                        type: boolean
+                      bio:
+                        type: string
+                      image:
+                        type: string
+        401:
+          description: Unauthorized (Missing or invalid token)
+        500:
+          description: Server Error
+
+  /api/auth/forgot-password:
+    post:
+      tags:
+        - Auth
+      summary: Request a password reset OTP
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+              properties:
+                email:
+                  type: string
+                  example: user@example.com
+      responses:
+        200:
+          description: Reset OTP sent successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Kode OTP untuk reset password telah dikirim ke email Anda.
+        400:
+          description: Invalid email format
+        404:
+          description: Email not registered
+        500:
+          description: Server Error
+
+  /api/auth/reset-password:
+    post:
+      tags:
+        - Auth
+      summary: Reset password with OTP code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - otp_code
+                - new_password
+              properties:
+                email:
+                  type: string
+                  example: user@example.com
+                otp_code:
+                  type: string
+                  example: "123456"
+                new_password:
+                  type: string
+                  example: newsecret123
+      responses:
+        200:
+          description: Password reset successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Password Anda berhasil diperbarui. Silakan login kembali.
+        400:
+          description: Validation error or invalid/expired OTP
+        404:
+          description: User not found
+        500:
+          description: Server Error
+
+  /api/auth/logout:
+    post:
+      tags:
+        - Auth
+      summary: Logout user
+      responses:
+        200:
+          description: Logout successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Logout berhasil!
+        500:
+          description: Server Error
+
+  /api/auth/google:
+    post:
+      tags:
+        - Auth
+      summary: Authenticate via Google OAuth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - googleToken
+              properties:
+                googleToken:
+                  type: string
+                  description: The ID Token or Access Token received from Google Auth
+      responses:
+        200:
+          description: Successful authentication
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Login with Google berhasil
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                      fullname:
+                        type: string
+                      username:
+                        type: string
+                      email:
+                        type: string
+                      image:
+                        type: string
+                      bio:
+                        type: string
+                  token:
+                    type: string
+        400:
+          description: Missing Google Token
+        401:
+          description: Google token is invalid or expired
+        500:
+          description: Server Error

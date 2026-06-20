@@ -92,7 +92,7 @@ export const GetFeed = async(req, res) => {
     let pageNumber = req.query.page ? Number(req.query.page) : 1;
     let limitNumber = req.query.limit ? Number(req.query.limit) : 10;
     
-    // Proteksi limit maksimal (diubah menjadi 30 agar lebih fleksibel)
+    // Proteksi limit maksimal (diubah menjadi 20 agar lebih fleksibel)
     if (limitNumber > 20) {
       limitNumber = 20;
     }
@@ -124,6 +124,14 @@ export const GetFeed = async(req, res) => {
               image: true,
             },
           },
+          likes: {
+            where: { userId: Number(currentUserId) },
+            select: { userId: true },
+          },
+          bookmarks: {
+            where: { userId: Number(currentUserId) },
+            select: { userId: true },
+          },
         },
         orderBy: {
           createdAt: "desc",
@@ -135,6 +143,17 @@ export const GetFeed = async(req, res) => {
 
     const totalPages = Math.ceil(totalPosts / limitNumber)
 
+    // Meratakan data dan menyuntikkan isLikedByMe dan isBookmarkedByMe
+    const formattedPosts = posts.map((post) => {
+      const { likes, bookmarks, ...postData } = post;
+      
+      return {
+        ...postData,
+        isLikedByMe: likes.length > 0,
+        isBookmarkedByMe: bookmarks.length > 0,
+      };
+    });
+
     return res.status(200).json({
       success: true,
       code: 200,
@@ -145,7 +164,7 @@ export const GetFeed = async(req, res) => {
         total_items: totalPosts,
         limit_per_page: limitNumber,
       },
-      data: posts,
+      data: formattedPosts,
     })
     
   } catch (error) {

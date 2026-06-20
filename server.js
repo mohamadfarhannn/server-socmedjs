@@ -1,13 +1,16 @@
 import 'dotenv/config';
 import express from 'express';
+import { swaggerDocs } from './utils/swagger.js';
 import AuthRouter from './routes/auth.route.js'
 import UserRouter from './routes/user.route.js'
 import FollowRouter from './routes/follow.route.js'
 import FeedRouter from './routes/feed.route.js'
 import CommentRouter from './routes/comment.route.js'
+import LikeRouter from './routes/like.route.js'
+import BookmarkRouter from './routes/bookmark.route.js'
 
 const app = express()
-const port = 3000
+const PORT = process.env.PORT || 3000
 
 // middleware untuk parse body json, biar bisa baca req.body
 app.use(express.json())
@@ -30,9 +33,14 @@ app.use('/api/auth', AuthRouter)
 app.use('/api/user', UserRouter)
 app.use('/api/follow', FollowRouter)    
 app.use('/api/feed', FeedRouter)
-app.use('/api/comment',CommentRouter)
+app.use('/api/comment', CommentRouter)
+app.use('/api/posts', LikeRouter)
+app.use('/api/bookmarks', BookmarkRouter)
+
+// initialize swagger
+swaggerDocs(app, PORT);
 
 // start server
-app.listen(port, () => {
-  console.log(`Server jalan di port ${port}`)
+app.listen(PORT, () => {
+  console.log(`Server jalan di port ${PORT}`)
 })

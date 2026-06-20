@@ -1,0 +1,257 @@
+paths:
+  /api/user/search:
+    get:
+      tags:
+        - User
+      summary: Search users by username or fullname
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: q
+          schema:
+            type: string
+          description: Search term (can also use 'username' or 'query')
+          required: true
+          example: john
+      responses:
+        200:
+          description: Search successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Get search users success
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                          example: 1
+                        username:
+                          type: string
+                          example: johndoe
+                        fullname:
+                          type: string
+                          example: John Doe
+                        image:
+                          type: string
+                          nullable: true
+                          example: https://res.cloudinary.com/demo/image/upload/v12345/avatar/john.jpg
+        400:
+          description: Search query parameter cannot be empty
+        401:
+          description: Unauthorized
+        500:
+          description: Server Error
+
+  /api/user/{username}:
+    get:
+      tags:
+        - User
+      summary: Get user profile details by username
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: username
+          required: true
+          schema:
+            type: string
+          description: The username of the user to retrieve
+          example: johndoe
+      responses:
+        200:
+          description: User profile retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Get detail user success
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                      email:
+                        type: string
+                      fullname:
+                        type: string
+                      username:
+                        type: string
+                      is_verified:
+                        type: boolean
+                      bio:
+                        type: string
+                        nullable: true
+                      image:
+                        type: string
+                        nullable: true
+                      followingCount:
+                        type: integer
+                      followersCount:
+                        type: integer
+                      postsCount:
+                        type: integer
+                      createdAt:
+                        type: string
+                      updatedAt:
+                        type: string
+        401:
+          description: Unauthorized
+        404:
+          description: User not found
+        500:
+          description: Server Error
+
+  /api/user/update-user:
+    put:
+      tags:
+        - User
+      summary: Update logged-in user profile details (fullname, username, bio)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - fullname
+                - username
+                - bio
+              properties:
+                fullname:
+                  type: string
+                  minLength: 3
+                  maxLength: 100
+                  example: John Doe Updated
+                username:
+                  type: string
+                  minLength: 3
+                  maxLength: 100
+                  example: john_doe_new
+                bio:
+                  type: string
+                  maxLength: 100
+                  example: Software engineer & coffee lover.
+      responses:
+        200:
+          description: User profile updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Update user success
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                      email:
+                        type: string
+                      fullname:
+                        type: string
+                      username:
+                        type: string
+                      is_verified:
+                        type: boolean
+                      bio:
+                        type: string
+                      image:
+                        type: string
+                        nullable: true
+                      followingCount:
+                        type: integer
+                      followersCount:
+                        type: integer
+                      postsCount:
+                        type: integer
+                      createdAt:
+                        type: string
+                      updatedAt:
+                        type: string
+        400:
+          description: Validation error or username already taken
+        401:
+          description: Unauthorized
+        500:
+          description: Server Error
+
+  /api/user/update-user-avatar:
+    put:
+      tags:
+        - User
+      summary: Update logged-in user avatar
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - image
+              properties:
+                image:
+                  type: string
+                  format: binary
+                  description: Avatar image file (Max size 2MB)
+      responses:
+        201:
+          description: User avatar updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Update user avatar success
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                      email:
+                        type: string
+                      fullname:
+                        type: string
+                      username:
+                        type: string
+                      is_verified:
+                        type: boolean
+                      bio:
+                        type: string
+                      image:
+                        type: string
+                        example: https://res.cloudinary.com/demo/image/upload/v12345/avatar/john.jpg
+                      followingCount:
+                        type: integer
+                      followersCount:
+                        type: integer
+                      postsCount:
+                        type: integer
+                      createdAt:
+                        type: string
+                      updatedAt:
+                        type: string
+        400:
+          description: Image is required
+        401:
+          description: Unauthorized
+        500:
+          description: Server Error
