@@ -19,6 +19,7 @@ model User {
   fullname  String   @db.VarChar(255)
   username  String   @unique @db.VarChar(255)
   password  String   @db.VarChar(255)
+  dateOfBirth DateTime? @db.Date
   is_verified Boolean  @default(false)
   bio       String?   @db.Text
   image     String?   @db.VarChar(255)
