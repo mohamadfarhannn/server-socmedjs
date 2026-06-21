@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "Post" ALTER COLUMN "caption" SET DATA TYPE VARCHAR(1500);

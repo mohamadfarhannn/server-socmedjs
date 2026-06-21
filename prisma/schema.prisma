@@ -58,7 +58,7 @@ model Post {
 
   image     String?   @db.VarChar(255)
   imageId   String?   @db.VarChar(255)
-  caption   String   @db.VarChar(255)
+  caption   String   @db.Text
   commentsCount Int @db.Integer @default(0)
   likesCount Int @db.Integer @default(0)
   createdAt DateTime @default(now()) @db.Timestamp(6)
