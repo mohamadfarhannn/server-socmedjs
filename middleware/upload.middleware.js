@@ -8,12 +8,15 @@ const fileFilter = (req, file, cb) => {
   if(ext !== ".jpg" && ext !== ".jpeg" && ext !== ".png") {
     return cb(new Error("Invalid file type! Only JPG, JPEG, PNG are allowed"), false)
   }
-
   cb(null, true)
 }
 
 const upload = multer({
-  storage, fileFilter
+  storage, 
+  fileFilter,
+  limits: {
+    fileSize: 5 * 1024 * 1024 // Batas ukuran maksimal: 5MB
+  }
 })
 
 export default upload

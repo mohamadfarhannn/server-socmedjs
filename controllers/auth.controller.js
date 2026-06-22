@@ -13,10 +13,31 @@ export const RegisterController = async (req, res) => {
       username: z.string().min(3, "Username minimal 3 karakter").max(100, "Username maksimal 100 karakter"),
       email: z.string().email("Format email tidak valid. contoh: example@mail.com").max(100, "Email maksimal 100 karakter"),
       password: z.string().min(6, "Password minimal 6 karakter").max(100),
+      dateOfBirth: z.string().refine((dateString) => {
+        const date = new Date(dateString);
+        return !isNaN(date.getTime());
+      }, "Format tanggal lahir tidak valid (gunakan YYYY-MM-DD)"),
     });
 
     // 2. Lakukan validasi. Jika gagal, Zod akan melempar ZodError ke blok catch.
     const validatedData = userSchema.parse(req.body);
+
+    // 2.5 Validasi Usia Minimal 16 Tahun
+    const dob = new Date(validatedData.dateOfBirth);
+    const today = new Date();
+    let age = today.getFullYear() - dob.getFullYear();
+    const monthDifference = today.getMonth() - dob.getMonth();
+    
+    // Jika bulan saat ini lebih kecil dari bulan lahir ATAU bulan sama tapi tanggal saat ini lebih kecil dari tanggal lahir
+    if (monthDifference < 0 || (monthDifference === 0 && today.getDate() < dob.getDate())) {
+      age--;
+    }
+
+    if (age < 16) {
+      return res.status(400).json({
+        message: "Mohon maaf, Anda harus berusia minimal 16 tahun untuk mendaftar.",
+      });
+    }
 
     // 3. Pengecekan apakah email sudah terdaftar
     const emailExisting = await prisma.user.findUnique({
@@ -49,6 +70,7 @@ export const RegisterController = async (req, res) => {
         username: validatedData.username,
         email: validatedData.email,
         password: hashedPassword,
+        dateOfBirth: dob,
       },
     });
 

@@ -1,18 +1,22 @@
+import { z } from "zod";
 import prisma from "../utils/prisma.js";
 import cloudinary from "../utils/cloudinary.js";
 
 export const CreatePost = async (req, res) => {
   try {
-    const { caption } = req.body;
+    // Buat Schema untuk Validasi body request menggunakan Zod
+    const postSchema = z.object({
+      caption: z.string()
+      .min(1, "Caption is required")
+      .max(1500, "Caption is too long, max 1500 characters"),
+    })
+
+    // Validasi body request menggunakan Zod
+    const validatedData = postSchema.parse(req.body);
+
     const currentUserId = req.user.id;
 
-    // Validation
-    if (!caption) {
-      return res.status(400).json({
-        message: "Caption is required",
-      })
-    }
-
+    // Validasi gambar
     if (!req.file) {
       return res.status(400).json({
         message: "Image is required",
@@ -37,7 +41,7 @@ export const CreatePost = async (req, res) => {
     
     const newPost = await prisma.post.create({
       data: {
-        caption,
+        caption: validatedData.caption,
         image: result.secure_url,
         imageId: result.public_id,
         userId: Number(currentUserId),
@@ -61,6 +65,119 @@ export const CreatePost = async (req, res) => {
     })
     
   } catch (error) {
+    if (error instanceof z.ZodError) {
+      const errors = error.issues.map((i) => i.message);
+      return res.status(400).json({
+        message: errors,
+      })
+    }
+
+    console.error("Server Error:", error);
+    return res.status(500).json({
+      message: "Server Error!",
+      error: error.message,
+    })
+  }
+}
+
+export const UpdatePost = async(req, res) => {
+  try {
+    const { postId } = req.params;
+    const currentUserId = req.user.id;
+
+    const postSchema = z.object({
+      caption: z.string()
+      .min(1, "Caption is required")
+      .max(1500, "Caption is too long, max 1500 characters"),
+    })
+
+    const validatedData = postSchema.parse(req.body);
+
+    // Cek apakah post ada di database
+    const postData = await prisma.post.findUnique({
+      where: {
+        id: Number(postId),
+      }
+    })
+
+    if(!postData) {
+      return res.status(404).json({
+        message: "Post not found",
+      })
+    }
+
+    // Cek apakah user yang login adalah pemilik post
+    if(postData.userId !== Number(currentUserId)) {
+      return res.status(403).json({
+        message: "Forbidden",
+      })
+    }
+
+    let updateData = {
+      caption: validatedData.caption,
+    }
+
+    // Update gambar jika user upload gambar baru
+    if(req.file) {
+      // Ubah buffer(data gambar yang diunggah multer) menjadi string base64 dengan format data URI agar bisa diupload ke cloudinary
+      const fileStr = `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`
+      
+      // Upload image ke cloudinary
+      const result = await cloudinary.uploader.upload(fileStr, {
+        folder: "posts",
+        transformation: {
+          width: 1080,
+          crop: "limit",
+        },
+        quality: "auto",
+        fetch_format: "auto",
+        resource_type: "image",
+        secure: true,
+      })
+
+      updateData.image = result.secure_url;
+      updateData.imageId = result.public_id;
+    }
+
+    // Update post dan ambil datanya berserta relasi user sekaligus (Lebih Optimal)
+    const updatedPostWithUser = await prisma.post.update({
+      where: {
+        id: Number(postId),
+      },
+      data: updateData,
+      include: {
+        user: {
+          select: {
+            id: true,
+            username: true,
+            fullname: true,
+            image: true,
+          },
+        },
+      },
+    })
+
+    // Hapus image lama di Cloudinary jika user mengupload image baru
+    if(req.file && postData.imageId) {
+      // Tidak perlu di-await agar response API ke user tidak terhambat (menunggu hapus gambar)
+      cloudinary.uploader.destroy(postData.imageId).catch(err => console.error("Gagal hapus image lama:", err));
+    }
+    
+    return res.status(200).json({
+      success: true,
+      code: 200,
+      message: "Update post success",
+      data: updatedPostWithUser,
+    })
+  } catch (error) {
+    // Tangani pesan error dari validasi Zod
+    if (error instanceof z.ZodError) {
+      const errors = error.issues.map((i) => i.message);
+      return res.status(400).json({
+        message: errors,
+      })
+    }
+
     console.error("Server Error:", error);
     return res.status(500).json({
       message: "Server Error!",

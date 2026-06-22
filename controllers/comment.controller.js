@@ -1,52 +1,67 @@
 import prisma from "../utils/prisma.js";
+import z from "zod";
 
 export const CreateComment = async (req, res) => {
     try {
+      const commentSchema = z.object({
+        postId: z.number({
+          required_error: "Post ID is required",
+          invalid_type_error: "Post ID must be a number",
+        }).int().positive(),
+        content: z.string()
+        .min(1, "Comment content is required")
+        .max(1000, "Comment content is too long, max 1000 characters"),
+      })
+
+      // Mapping body request ke schema z
+      const validatedData = commentSchema.parse(req.body);
+
       const currentUserId = req.user.id
-      const { postId, content } = req.body
+      const { postId, content } = validatedData
 
-      if(!postId || !content) {
-        return res.status(400).json({ message: "Post ID and comment content are required!" })
-      }
-
-      if(typeof postId !== "number" || typeof content !== "string") {
-        return res.status(400).json({ message: "Post ID must be a number and content must be a string!" })
-      }
-
-      const postData = await prisma.post.findUnique({
-        where: {
-          id: Number(postId)
-        }
-      })
-
-      if(!postData) {
-        return res.status(404).json({ message: "Post not found!" })
-      }
-
-      const newComment = await prisma.comments.create({
-        data: {
-          userId: Number(currentUserId),
-          postId: Number(postId),
-          content
-        }
-      })
-
-      await prisma.post.update({
-        where: {
-          id: Number(postId)
-        },
-        data: {
-          commentsCount: { increment: 1 }
-        }
-      })
+      // Jika postId tidak ada, Prisma otomatis akan melempar error P2003 (Foreign Key) atau P2025 (Record not found)
+      const [newComment] = await prisma.$transaction([
+        prisma.comments.create({
+          data: {
+            userId: Number(currentUserId),
+            postId: Number(postId),
+            content
+          },
+        }),
+        prisma.post.update({
+          where: {
+            id: Number(postId)
+          },
+          data: {
+            commentsCount: { increment: 1 }
+          }
+        })
+      ])
 
       return res.status(201).json({ 
+        success: true,
+        code: 201,
         message: "Comment created successfully!", 
         data: newComment
       })
     } catch (error) {
-      console.error(error)
-        return res.status(500).json({ message: "Server error!" })
+      // Tangani pesan error dari validasi Zod
+      if (error instanceof z.ZodError) {
+        const errors = error.issues.map((i) => i.message);
+        return res.status(400).json({
+          message: errors,
+        })
+      }
+
+      // P2003 (Foreign key) atau P2025 (Record not found): Artinya postId tidak ditemukan di tabel Post
+      if (error.code === 'P2003' || error.code === 'P2025') {
+        return res.status(404).json({
+          message: "Post not found",
+        })
+      }
+
+      console.error("CreateComment error : ",error)
+      return res.status(500).json({ message: "Server error!" })
     }
 }
 

@@ -27,6 +27,7 @@ export const AuthMiddleware = async (req, res, next) => {
     id: currentUser.id,
     fullname: currentUser.fullname,
     username: currentUser.username,
+    dateOfBirth: currentUser.dateOfBirth,
     email: currentUser.email,
     image: currentUser.image,
     bio: currentUser.bio,
